@@ -1,0 +1,329 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>BoogieBot Controller Control</title>
+    <script src="https://cdn.socket.io/4.0.0/socket.io.min.js"></script>
+    <script src="https://unpkg.com/blockly/blockly.min.js"></script>
+    <link rel="stylesheet" href="../static/styles.css">
+    <!--
+    <style>
+        body { font-family: 'Comic Sans MS', 'Arial', sans-serif; background-color: #f0f8ff; color: #333; text-align: center; display: flex; flex-direction: column; align-items: center; }
+        .header h1 { color: #ff6347; }
+        .main-content { display: flex; align-items: center; margin: 20px; }
+        .camera-feed img { max-width: 640px; border-radius: 10px; border: 5px solid #333; }
+        .robot-sprite { max-width: 150px}
+        .sidebar { display: flex; flex-direction: column; margin-left: 15px; }
+        .control-btn, .action-btn { background-color: #4CAF50; color: white; border: none; border-radius: 20px; padding: 10px 20px; margin: 10px; font-size: 20px; cursor: pointer; transition: transform 0.2s; }
+        .control-btn:hover, .action-btn:hover { background-color: #45a049; }
+        .control-btn:active, .action-btn:active, .control-btn.active { background-color: #397d39; transform: scale(1.1); }
+    </style>
+    -->
+</head>
+<body>
+    <div class="header">
+        <h1>Welcome to Your BoogieBot Controller!</h1>
+    </div>
+    <div class="code-box-header">
+        <h2>Boogie Box</h2>
+    </div>
+    <div class="main-content">
+            
+        <div id="blocklyDiv" style="height: 70%; width: 35%;"></div>
+        <xml id="toolbox" style="display: none">
+            <block type="controls_repeat_ext"></block>
+            <block type="math_number">
+                <field name="NUM">1</field>
+            </block>
+            <block type="forward"></block>
+            <block type="back"></block>
+            <block type="left_turn"></block>
+            <block type="right_turn"></block>
+            <block type="stop"></block>
+        </xml>
+
+        <button class="send-to-bot-button" id="sendCode" onclick="sendDanceRequest()" disabled>No QR Code Detected</button>
+
+        <div class="camera-feed">
+            <img src="{{ url_for('video_feed') }}" id="videoFeed" alt="Video Feed">
+            
+            <div class="controls">
+                <table style="margin: 0 auto;">
+                    <tr>
+                        <td>
+                        <td><button class="control-btn" id="forward" onmousedown="moveForward()" onmouseup="stopRobot()">&#8679;</button></td>
+                        </td>
+                    </tr>
+                    <tr>
+                        <td><button class="control-btn" id="left" onmousedown="turnLeft()" onmouseup="stopRobot()">&#8678;</button></td>
+                        <td><button class="control-btn" id="back" onmousedown="moveBack()" onmouseup="stopRobot()">&#8681;</button></td>
+                        <td><button class="control-btn" id="right" onmousedown="turnRight()" onmouseup="stopRobot()">&#8680;</button></td>
+                    </tr>
+                </table>
+            </div>
+        </div>   
+                    
+        <div class="sidebar">
+            <img src="../static/images/robot_idle.png" alt="Idle Robot" id="robotSprite" class="robot-sprite">
+            <button class="action-btn" onclick="takePhoto()">Take Photo</button>
+        </div> 
+    </div>
+    <script type="text/javascript">
+        
+        var socket = io.connect(location.protocol + '//' + document.domain + ':' + location.port);
+        var friend_socket = io();
+        var friend_ip = "10.0.0.239";
+        var friend_name = "";
+        var robot_speed = "150";
+        var code_button = document.getElementById('sendCode');
+        
+        // Initialize custom blocks for robot control
+        Blockly.Blocks['forward'] = {
+            init: function() {
+                this.appendDummyInput()
+                    .appendField("move forward");
+                this.appendValueInput("DURATION")
+                    .setCheck("Number")
+                    .appendField("duration (seconds)");
+                this.setPreviousStatement(true, null);
+                this.setNextStatement(true, null);
+                this.setColour(200);
+            }
+        };
+
+        Blockly.Blocks['back'] = {
+            init: function() {
+                this.appendDummyInput()
+                    .appendField("move backward");
+                this.appendValueInput("DURATION")
+                    .setCheck("Number")
+                    .appendField("duration (seconds)");
+                this.setPreviousStatement(true, null);
+                this.setNextStatement(true, null);
+                this.setColour(200);
+            }
+        };
+
+        Blockly.Blocks['left_turn'] = {
+            init: function() {
+                this.appendDummyInput()
+                    .appendField("turn left");
+                this.appendValueInput("DURATION")
+                    .setCheck("Number")
+                    .appendField("duration (seconds)");
+                this.setPreviousStatement(true, null);
+                this.setNextStatement(true, null);
+                this.setColour(200);
+            }
+        };
+
+        Blockly.Blocks['right_turn'] = {
+            init: function() {
+                this.appendDummyInput()
+                    .appendField("turn right");
+                this.appendValueInput("DURATION")
+                    .setCheck("Number")
+                    .appendField("duration (seconds)");
+                this.setPreviousStatement(true, null);
+                this.setNextStatement(true, null);
+                this.setColour(200);
+            }
+        };
+        
+        Blockly.Blocks['stop'] = {
+            init: function() {
+                this.appendDummyInput()
+                    .appendField("stop");
+                this.appendValueInput("DURATION")
+                    .setCheck("Number")
+                    .appendField("duration (seconds)");
+                this.setPreviousStatement(true, null);
+                this.setNextStatement(true, null);
+                this.setColour(0);
+            }
+        };
+
+        // Define the JavaScript code generation for the blocks
+        Blockly.JavaScript['forward'] = function(block) {
+            var duration = Blockly.JavaScript.valueToCode(block, 'DURATION', Blockly.JavaScript.ORDER_ATOMIC) || '0';
+            return 'F;' + robot_speed + ':' + duration + '>\n';
+        };
+
+        Blockly.JavaScript['back'] = function(block) {
+            var duration = Blockly.JavaScript.valueToCode(block, 'DURATION', Blockly.JavaScript.ORDER_ATOMIC) || '0';
+            return 'B;' + robot_speed + ':' + duration + '>\n';
+        };
+
+        Blockly.JavaScript['left_turn'] = function(block) {
+            var duration = Blockly.JavaScript.valueToCode(block, 'DURATION', Blockly.JavaScript.ORDER_ATOMIC) || '0';
+            return 'L;' + robot_speed + ':' + duration + '>\n';
+        };
+
+        Blockly.JavaScript['right_turn'] = function(block) {
+            var duration = Blockly.JavaScript.valueToCode(block, 'DURATION', Blockly.JavaScript.ORDER_ATOMIC) || '0';
+            return 'R;' + robot_speed + ':' + duration + '>\n';
+        };
+        
+        Blockly.JavaScript['stop'] = function(block) {
+            var duration = Blockly.JavaScript.valueToCode(block, 'DURATION', Blockly.JavaScript.ORDER_ATOMIC) || '0';
+            return 'Z;' + robot_speed + ':' + duration + '>\n';
+        };
+        
+        
+        var workspace = Blockly.inject('blocklyDiv', {
+            toolbox: document.getElementById('toolbox')
+        });
+        
+        
+        // Getting name and ip address data from friend's QR code
+        socket.on('qr_detected', function(data) {
+            code_button.disabled = false;
+            code_button.style.backgroundColor = "#f57931";
+            code_button.innerHTML = "Send Code to " + data.name + "?";
+            code_button.onclick = sendDanceRequest;
+            friend_name = data.name;
+            friend_ip = data.ip;
+        });
+
+        socket.on('qr_not_detected', function() {
+            code_button.disabled = true;
+            code_button.style.backgroundColor = "#a6a6a6";
+            code_button.innerHTML = "No QR Code Detected";
+        });
+
+        function sendDanceRequest() {
+            friend_socket.connect(location.protocol + '//' + friend_ip + ':' + location.port);
+            friend_socket.emit('dance_request', {name: friend_name, ip: friend_ip});
+            code_button.innerHTML = "Awaiting response from " + friend_name + "...";
+            code_button.disabled = true;
+        }
+        
+        // Receivng dance request from friend's robot
+        socket.on('accept_request', function() {
+            if (confirm("Accept Code from " + friend_name + "?")) {
+                var js_code = Blockly.JavaScript.workspaceToCode(workspace);
+
+                friend_socket.emit('confirm_code_exchange', {name: friend_name, ip: friend_ip, confirmed: true, code: js_code});
+            }
+            else {
+                friend_socket.emit('reject_code_exchange');
+                code_button.innerHTML = "No QR Code Detected";
+                code_button.disabled = true;
+                code_button.style.backgroundColor = "#a6a6a6";
+            }
+            
+        });
+        
+        // If dance request is rejected
+        socket.on('reject_code_exchange', function() {
+           alert(friend_name + " rejected your boogie request!");
+           code_button.disabled = true;
+           code_button.style.backgroundColor = "#a6a6a6";
+           code_button.innerHTML = "No QR Code Detected";
+        });
+        
+        socket.on('enable_boogie_button', function(data) {
+            if (data.confirmed) {
+                code_button.disabled = false;
+                code_button.onclick = null;
+                code_button.innerHTML = "Boogie with " + friend_name + "!";
+                code_button.addEventListener("click", function() {
+                    socket.emit('execute_dance', data.code);
+                    code_button.innerHTML = "Boogying!";
+                    code_button.disabled = true;
+                    code_button.style.backgroundColor = "#a6a6a6";
+                });
+            }
+        });
+        
+        socket.on('dance_finished', function() {
+            alert("Boogie Finished! Give " + friend_name + " a high-five!");
+            code_button.innerHTML = "No QR Code Detected";
+            code_button.style.backgroundColor = "#a6a6a6";
+            code_button.disabled = true;
+        });
+        
+        // Controlling your own robot with arrow keys
+        function sendCommand(command) {
+            socket.emit("command", command + ":0>");
+        }
+        
+        function moveForward() {
+            sendCommand("F;".concat(robot_speed));
+        }
+        function moveBack() {
+            sendCommand("B;".concat(robot_speed));
+        }
+        function turnLeft() {
+            sendCommand("L;".concat(robot_speed));
+        }
+        function turnRight() {
+            sendCommand("R;".concat(robot_speed));
+        }
+        function stopRobot() {
+            sendCommand("Z;".concat(robot_speed));
+        }
+        
+        document.addEventListener('keydown', function(event) {
+            if (event.key === 'ArrowUp') {
+                document.getElementById('forward').classList.add('active');
+                moveForward();
+            } else if (event.key === 'ArrowDown') {
+                document.getElementById('back').classList.add('active');
+                moveBack();
+            } else if (event.key === 'ArrowLeft') {
+                document.getElementById('left').classList.add('active');
+                turnLeft();
+            } else if (event.key === 'ArrowRight') {
+                document.getElementById('right').classList.add('active');
+                turnRight();
+            } 
+        });
+
+        document.addEventListener('keyup', function(event) {
+            if (event.key === 'ArrowUp') {
+                document.getElementById('forward').classList.remove('active');
+                stopRobot();
+            } else if (event.key === 'ArrowDown') {
+                document.getElementById('back').classList.remove('active');
+                stopRobot();
+            } else if (event.key === 'ArrowLeft') {
+                document.getElementById('left').classList.remove('active');
+                stopRobot();
+            } else if (event.key === 'ArrowRight') {
+                document.getElementById('right').classList.remove('active');
+                stopRobot();
+            }
+        });
+        
+        function takePhoto() {
+            var videoFeed = document.getElementById('videoFeed');
+            var canvas = document.createElement('canvas');
+            canvas.width = videoFeed.width;
+            canvas.height = videoFeed.height;
+
+            var ctx = canvas.getContext('2d');
+            ctx.drawImage(videoFeed, 0, 0, canvas.width, canvas.height);
+
+            // Convert the canvas image to a data URL and prompt the user to save it
+            var dataURL = canvas.toDataURL('image/png');
+            var link = document.createElement('a');
+            link.href = dataURL;
+            link.download = 'captured_frame.png';
+            link.click();
+            
+            setTimeout(() => {
+                document.getElementById('robotSprite').src = '../static/images/robot_idle.png';
+            }, 2000);
+        }            
+        
+        // Receive messages back from the socket server
+        socket.onmessage = function(event) {
+            console.log('Message from server: ', event.data);
+        };
+
+        
+    </script>
+</body>
+</html>
